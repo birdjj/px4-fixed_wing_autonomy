@@ -70,6 +70,7 @@
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/airspeed_validated.h>
+#include <uORB/topics/fixed_wing_offboard.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/position_controller_landing_status.h>
@@ -151,6 +152,7 @@ private:
 	uORB::SubscriptionCallbackWorkItem _local_pos_sub{this, ORB_ID(vehicle_local_position)};
 
 	uORB::Subscription _control_mode_sub{ORB_ID(vehicle_control_mode)};		///< control mode subscription
+    uORB::Subscription _fixed_wing_offboard_sub{ORB_ID(fixed_wing_offboard)};			/**< fixed wing offboard command subscription */
 	uORB::Subscription _global_pos_sub{ORB_ID(vehicle_global_position)};
 	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};	///< notification of manual control updates
 	uORB::Subscription _parameter_update_sub{ORB_ID(parameter_update)};		///< notification of parameter updates
@@ -167,6 +169,7 @@ private:
 	uORB::Publication<position_controller_landing_status_s>	_pos_ctrl_landing_status_pub{ORB_ID(position_controller_landing_status)};	///< landing status publication
 	uORB::Publication<tecs_status_s>			_tecs_status_pub{ORB_ID(tecs_status)};						///< TECS status publication
 
+    fixed_wing_offboard_s           _fw_offboard_setpoint {}; /**< fw offboard setpoint */
 	manual_control_setpoint_s	_manual_control_setpoint {};			///< r/c channel data
 	position_setpoint_triplet_s	_pos_sp_triplet {};		///< triplet of mission items
 	vehicle_attitude_s		_att {};			///< vehicle attitude setpoint
@@ -278,6 +281,7 @@ private:
 	// Update subscriptions
 	void		airspeed_poll();
 	void		control_update();
+    void        offboard_setpoint_poll();
 	void		vehicle_attitude_poll();
 	void		vehicle_command_poll();
 	void		vehicle_control_mode_poll();
@@ -357,6 +361,13 @@ private:
 					float throttle_min, float throttle_max, float throttle_cruise,
 					bool climbout_mode, float climbout_pitch_min_rad,
 					uint8_t mode = tecs_status_s::TECS_MODE_NORMAL);
+
+    void tecs_update_pitch_throttle(const hrt_abstime &now, float vcommand_sp, bool control_vrate, float airspeed_sp,
+					float pitch_min_rad, float pitch_max_rad,
+					float throttle_min, float throttle_max, float throttle_cruise,
+					bool climbout_mode, float climbout_pitch_min_rad,
+					uint8_t mode = tecs_status_s::TECS_MODE_NORMAL);
+
 
 	DEFINE_PARAMETERS(
 

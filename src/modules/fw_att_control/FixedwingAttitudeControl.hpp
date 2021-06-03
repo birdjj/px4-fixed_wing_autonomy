@@ -55,6 +55,7 @@
 #include <uORB/topics/actuator_controls.h>
 #include <uORB/topics/airspeed_validated.h>
 #include <uORB/topics/battery_status.h>
+#include <uORB/topics/fixed_wing_offboard.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/rate_ctrl_status.h>
@@ -98,6 +99,7 @@ private:
 	uORB::Subscription _att_sp_sub{ORB_ID(vehicle_attitude_setpoint)};		/**< vehicle attitude setpoint */
 	uORB::Subscription _battery_status_sub{ORB_ID(battery_status)};			/**< battery status subscription */
 	uORB::Subscription _local_pos_sub{ORB_ID(vehicle_local_position)};		/**< local position subscription */
+    uORB::Subscription _fixed_wing_offboard_sub{ORB_ID(fixed_wing_offboard)};			/**< fixed wing offboard command subscription */
 	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};		/**< notification of manual control updates */
 	uORB::Subscription _parameter_update_sub{ORB_ID(parameter_update)};		/**< notification of parameter updates */
 	uORB::Subscription _rates_sp_sub{ORB_ID(vehicle_rates_setpoint)};		/**< vehicle rates setpoint */
@@ -114,6 +116,7 @@ private:
 	uORB::PublicationMulti<rate_ctrl_status_s>	_rate_ctrl_status_pub{ORB_ID(rate_ctrl_status)};
 
 	actuator_controls_s			_actuators {};		/**< actuator control inputs */
+    fixed_wing_offboard_s           _fw_offboard_setpoint {}; /**< fw offboard setpoint */
 	manual_control_setpoint_s		_manual_control_setpoint {};		/**< r/c channel data */
 	vehicle_attitude_setpoint_s		_att_sp {};		/**< vehicle attitude setpoint */
 	vehicle_control_mode_s			_vcontrol_mode {};	/**< vehicle control mode */
@@ -222,6 +225,7 @@ private:
 	 */
 	int		parameters_update();
 
+    void        offboard_setpoint_poll();
 	void		vehicle_control_mode_poll();
 	void		vehicle_manual_poll();
 	void		vehicle_attitude_setpoint_poll();

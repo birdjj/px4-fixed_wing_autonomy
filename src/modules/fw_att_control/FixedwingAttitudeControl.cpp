@@ -116,6 +116,12 @@ FixedwingAttitudeControl::parameters_update()
 }
 
 void
+FixedwingAttitudeControl::offboard_setpoint_poll()
+{
+    _fixed_wing_offboard_sub.update(&_fw_offboard_setpoint);
+}
+
+void
 FixedwingAttitudeControl::vehicle_control_mode_poll()
 {
 	_vcontrol_mode_sub.update(&_vcontrol_mode);
@@ -211,6 +217,13 @@ FixedwingAttitudeControl::vehicle_attitude_setpoint_poll()
 		_rates_sp.thrust_body[1] = _att_sp.thrust_body[1];
 		_rates_sp.thrust_body[2] = _att_sp.thrust_body[2];
 	}
+    if (_vcontrol_mode.flag_control_offboard_enabled && _fw_offboard_setpoint.valid) {
+    switch (_fw_offboard_setpoint.type) {
+        case _fw_offboard_setpoint.SETPOINT_TYPE_HIGH_LEVEL_PILOTAGE:
+            _att_sp.roll_body = _fw_offboard_setpoint.phi;
+            break;
+        }
+    }
 }
 
 void
@@ -361,6 +374,7 @@ void FixedwingAttitudeControl::Run()
 		const matrix::Eulerf euler_angles(R);
 
 		vehicle_attitude_setpoint_poll();
+        offboard_setpoint_poll();
 
 		// vehicle status update must be before the vehicle_control_mode_poll(), otherwise rate sp are not published during whole transition
 		_vehicle_status_sub.update(&_vehicle_status);

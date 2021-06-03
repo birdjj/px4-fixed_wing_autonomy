@@ -212,9 +212,15 @@ void TECS::_update_height_setpoint(float desired, float state)
 
 	// Calculate the demanded climb rate proportional to height error plus a feedforward term to provide
 	// tight tracking during steady climb and descent manoeuvres.
-	_hgt_rate_setpoint = (_hgt_setpoint_adj - state) * _height_error_gain + _height_setpoint_gain_ff *
+	float new_hgt_rate_setpoint = (_hgt_setpoint_adj - state) * _height_error_gain + _height_setpoint_gain_ff *
 			     (_hgt_setpoint_adj - _hgt_setpoint_adj_prev) / _dt;
+    _update_height_rate_setpoint(new_hgt_rate_setpoint);
 	_hgt_setpoint_adj_prev = _hgt_setpoint_adj;
+}
+
+void TECS::_update_height_rate_setpoint(float desired)
+{
+    _hgt_rate_setpoint = desired;
 
 	// Limit the rate of change of height demand to respect vehicle performance limits
 	if (_hgt_rate_setpoint > _max_climb_rate) {
@@ -578,6 +584,80 @@ void TECS::update_pitch_throttle(const matrix::Dcmf &rotMat, float pitch, float 
 
 	// Calculate the demanded height
 	_update_height_setpoint(hgt_setpoint, baro_altitude);
+
+	// Calculate the specific energy values required by the control loop
+	_update_energy_estimates();
+
+	// Calculate the throttle demand
+	_update_throttle_setpoint(throttle_cruise, rotMat);
+
+	// Calculate the pitch demand
+	_update_pitch_setpoint();
+
+	// Update time stamps
+	_pitch_update_timestamp = now;
+
+	// Set TECS mode for next frame
+	if (_underspeed_detected) {
+		_tecs_mode = ECL_TECS_MODE_UNDERSPEED;
+
+	} else if (_uncommanded_descent_recovery) {
+		_tecs_mode = ECL_TECS_MODE_BAD_DESCENT;
+
+	} else if (_climbout_mode_active) {
+		_tecs_mode = ECL_TECS_MODE_CLIMBOUT;
+
+	} else {
+		// This is the default operation mode
+		_tecs_mode = ECL_TECS_MODE_NORMAL;
+	}
+
+}
+
+void TECS::update_pitch_throttle_height_rate(const matrix::Dcmf &rotMat, float pitch, float baro_altitude, float hgt_rate_setpoint,
+				 float EAS_setpoint, float indicated_airspeed, float eas_to_tas, bool climb_out_setpoint, float pitch_min_climbout,
+				 float throttle_min, float throttle_max, float throttle_cruise, float pitch_limit_min, float pitch_limit_max)
+{
+	// Calculate the time since last update (seconds)
+	uint64_t now = hrt_absolute_time();
+	_dt = constrain((now - _pitch_update_timestamp) * 1e-6f, DT_MIN, DT_MAX);
+
+	// Set class variables from inputs
+	_throttle_setpoint_max = throttle_max;
+	_throttle_setpoint_min = throttle_min;
+	_pitch_setpoint_max = pitch_limit_max;
+	_pitch_setpoint_min = pitch_limit_min;
+	_climbout_mode_active = climb_out_setpoint;
+
+	// Initialize selected states and variables as required
+	_initialize_states(pitch, throttle_cruise, baro_altitude, pitch_min_climbout, eas_to_tas);
+
+	// Don't run TECS control algorithms when not in flight
+	if (!_in_air) {
+		return;
+	}
+
+	// Update the true airspeed state estimate
+	_update_speed_states(EAS_setpoint, indicated_airspeed, eas_to_tas);
+
+	// Calculate rate limits for specific total energy
+	_update_STE_rate_lim();
+
+	// Detect an underspeed condition
+	_detect_underspeed();
+
+	// Detect an uncommanded descent caused by an unachievable airspeed demand
+	_detect_uncommanded_descent();
+
+	// Calculate the demanded true airspeed
+	_update_speed_setpoint();
+
+    // if we don't set a height setpoint then the integrator will get us 
+    // eventually and take out our height rate setting
+	_update_height_setpoint(baro_altitude, baro_altitude);
+
+    // Calculate the demanded height rate
+    _update_height_rate_setpoint(hgt_rate_setpoint);
 
 	// Calculate the specific energy values required by the control loop
 	_update_energy_estimates();

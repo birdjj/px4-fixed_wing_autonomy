@@ -141,6 +141,12 @@ FixedwingPositionControl::parameters_update()
 }
 
 void
+FixedwingPositionControl::offboard_setpoint_poll()
+{
+    _fixed_wing_offboard_sub.update(&_fw_offboard_setpoint);
+}
+
+void
 FixedwingPositionControl::vehicle_control_mode_poll()
 {
 	if (_control_mode_sub.updated()) {
@@ -774,7 +780,8 @@ FixedwingPositionControl::control_position(const hrt_abstime &now, const Vector2
 		}
 
 	} else if (_control_mode.flag_control_velocity_enabled &&
-		   _control_mode.flag_control_altitude_enabled) {
+		   _control_mode.flag_control_altitude_enabled &&
+           !_control_mode.flag_control_offboard_enabled) {
 		/* POSITION CONTROL: pitch stick moves altitude setpoint, throttle stick sets airspeed,
 		   heading is set to a distant waypoint */
 
@@ -884,7 +891,7 @@ FixedwingPositionControl::control_position(const hrt_abstime &now, const Vector2
 			_att_sp.yaw_body = 0;
 		}
 
-	} else if (_control_mode.flag_control_altitude_enabled) {
+	} else if (_control_mode.flag_control_altitude_enabled && !_control_mode.flag_control_offboard_enabled) {
 		/* ALTITUDE CONTROL: pitch stick moves altitude setpoint, throttle stick sets airspeed */
 
 		if (_control_mode_current != FW_POSCTRL_MODE_POSITION && _control_mode_current != FW_POSCTRL_MODE_ALTITUDE) {
@@ -927,6 +934,43 @@ FixedwingPositionControl::control_position(const hrt_abstime &now, const Vector2
 		_att_sp.roll_body = _manual_control_setpoint.y * radians(_param_fw_man_r_max.get());
 		_att_sp.yaw_body = 0;
 
+    } else if (_control_mode.flag_control_offboard_enabled && _fw_offboard_setpoint.valid && _fw_offboard_setpoint.type >= 2) {
+        /* If we're in offboard with a valid fixed-wing offboard setpoint, and the setpoint type is greater than 2 (which excludes direct surface and rate control modes) */
+
+        float mission_airspeed = _param_fw_airspd_trim.get();
+        float mission_throttle = _param_fw_thr_cruise.get();
+
+        float vcontrol_setpoint = pos_sp_curr.alt;
+        bool control_vertical_rate = false;
+
+        /* select our vertical rate control method based on the setpoint type */
+        switch (_fw_offboard_setpoint.type) {
+            case _fw_offboard_setpoint.SETPOINT_TYPE_HIGH_LEVEL_PILOTAGE:
+                control_vertical_rate = true;
+                mission_airspeed = _fw_offboard_setpoint.ias;
+                vcontrol_setpoint = _fw_offboard_setpoint.vertical_rate;
+                break;
+            case _fw_offboard_setpoint.SETPOINT_TYPE_NAVIGATION:
+                control_vertical_rate = false;
+                mission_airspeed = _fw_offboard_setpoint.ias;
+                vcontrol_setpoint = _fw_offboard_setpoint.h;
+		        _l1_control.navigate_heading(_fw_offboard_setpoint.psi, _yaw, ground_speed);
+                _att_sp.roll_body = _l1_control.get_roll_setpoint();
+                _att_sp.yaw_body = _l1_control.nav_bearing();
+                break;
+        }
+
+        tecs_update_pitch_throttle(now,
+                       vcontrol_setpoint,
+                       control_vertical_rate,
+                       mission_airspeed,
+                       radians(_param_fw_p_lim_min.get()) - radians(_param_fw_psp_off.get()),
+                       radians(_param_fw_p_lim_max.get()) - radians(_param_fw_psp_off.get()),
+                       _param_fw_thr_min.get(),
+                       _param_fw_thr_max.get(),
+                       mission_throttle,
+                       false,
+                       radians(_param_fw_p_lim_min.get()));
 	} else {
 		_control_mode_current = FW_POSCTRL_MODE_OTHER;
 
@@ -961,7 +1005,8 @@ FixedwingPositionControl::control_position(const hrt_abstime &now, const Vector2
 		_att_sp.thrust_body[0] = _runway_takeoff.getThrottle(now, min(get_tecs_thrust(), throttle_max));
 
 	} else if (_control_mode_current == FW_POSCTRL_MODE_AUTO &&
-		   pos_sp_curr.type == position_setpoint_s::SETPOINT_TYPE_IDLE) {
+		   pos_sp_curr.type == position_setpoint_s::SETPOINT_TYPE_IDLE &&
+           !_control_mode.flag_control_offboard_enabled) {
 
 		_att_sp.thrust_body[0] = 0.0f;
 
@@ -1540,6 +1585,7 @@ FixedwingPositionControl::Run()
 		_pos_reset_counter = _local_pos.vxy_reset_counter;
 
 		airspeed_poll();
+        offboard_setpoint_poll();
 		_manual_control_setpoint_sub.update(&_manual_control_setpoint);
 		_pos_sp_triplet_sub.update(&_pos_sp_triplet);
 		vehicle_attitude_poll();
@@ -1654,6 +1700,21 @@ FixedwingPositionControl::tecs_update_pitch_throttle(const hrt_abstime &now, flo
 		bool climbout_mode, float climbout_pitch_min_rad,
 		uint8_t mode)
 {
+    tecs_update_pitch_throttle(
+        now, alt_sp, false, airspeed_sp,
+		pitch_min_rad, pitch_max_rad,
+		throttle_min, throttle_max, throttle_cruise,
+		climbout_mode, climbout_pitch_min_rad,
+		mode);
+}
+
+void
+FixedwingPositionControl::tecs_update_pitch_throttle(const hrt_abstime &now, float vcommand_sp, bool control_vrate, float airspeed_sp,
+		float pitch_min_rad, float pitch_max_rad,
+		float throttle_min, float throttle_max, float throttle_cruise,
+		bool climbout_mode, float climbout_pitch_min_rad,
+		uint8_t mode)
+{
 	const float dt = math::constrain((now - _last_tecs_update) * 1e-6f, 0.01f, 0.05f);
 	_last_tecs_update = now;
 
@@ -1761,12 +1822,22 @@ FixedwingPositionControl::tecs_update_pitch_throttle(const hrt_abstime &now, flo
 		}
 	}
 
-	_tecs.update_pitch_throttle(_R_nb, pitch_for_tecs,
-				    _current_altitude, alt_sp,
-				    airspeed_sp, _airspeed, _eas2tas,
-				    climbout_mode, climbout_pitch_min_rad,
-				    throttle_min, throttle_max, throttle_cruise,
-				    pitch_min_rad, pitch_max_rad);
+    if (control_vrate) {
+        _tecs.update_pitch_throttle_height_rate(_R_nb, pitch_for_tecs,
+                        _current_altitude, vcommand_sp,
+                        airspeed_sp, _airspeed, _eas2tas,
+                        climbout_mode, climbout_pitch_min_rad,
+                        throttle_min, throttle_max, throttle_cruise,
+                        pitch_min_rad, pitch_max_rad);
+
+    } else {
+        _tecs.update_pitch_throttle(_R_nb, pitch_for_tecs,
+                        _current_altitude, vcommand_sp,
+                        airspeed_sp, _airspeed, _eas2tas,
+                        climbout_mode, climbout_pitch_min_rad,
+                        throttle_min, throttle_max, throttle_cruise,
+                        pitch_min_rad, pitch_max_rad);
+    }
 
 	tecs_status_publish();
 }
