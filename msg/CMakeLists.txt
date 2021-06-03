@@ -61,8 +61,10 @@ set(msg_files
 	esc_report.msg
 	esc_status.msg
 	estimator_innovations.msg
+    estimator_offboard.msg
 	estimator_sensor_bias.msg
 	estimator_status.msg
+    fixed_wing_offboard.msg
 	follow_target.msg
 	geofence_result.msg
 	gps_dump.msg
