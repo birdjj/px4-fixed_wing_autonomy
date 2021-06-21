@@ -9,7 +9,6 @@ rtps:
     id: 4
   - msg: airspeed
     id: 5
-    send: true
   - msg: battery_status
     id: 6
   - msg: camera_capture
@@ -39,7 +38,6 @@ rtps:
     receive: true
   - msg: differential_pressure
     id: 16
-    send: true
   - msg: distance_sensor
     id: 17
   - msg: estimator_innovations
@@ -141,12 +139,10 @@ rtps:
     id: 62
   - msg: sensor_baro
     id: 63
-    send: true
   - msg: estimator_sensor_bias
     id: 64
   - msg: sensor_combined
     id: 65
-    send: true
   - msg: sensor_correction
     id: 66
   - msg: sensor_gyro
@@ -215,7 +211,6 @@ rtps:
     send: true
   - msg: vehicle_gps_position
     id: 94
-    send: true
   - msg: vehicle_land_detected
     id: 95
   - msg: vehicle_local_position
